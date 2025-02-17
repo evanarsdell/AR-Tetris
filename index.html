@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simple AR Cube</title>
+    <title>Simple AR Cube on Ground</title>
     <!-- A-Frame Library -->
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
     <!-- AR.js for A-Frame -->
@@ -21,8 +21,8 @@
         position: absolute;
         top: 0;
         left: 0;
-        height: 100%;
         width: 100%;
+        height: 100%;
       }
     </style>
   </head>
@@ -32,11 +32,14 @@
       <!-- AR Camera -->
       <a-camera position="0 0 0"></a-camera>
       
-      <!-- A simple cube floating slightly above the ground -->
-      <a-box position="0 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
+      <!-- Virtual ground plane at y=0 -->
+      <a-plane position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
       
-      <!-- A ground plane to help orient the scene -->
-      <a-plane rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+      <!-- Cube positioned so its bottom touches the ground.
+           By default, the <a-box> has its center at its midpoint.
+           If the cube is 1 unit tall, setting its y position to 0.5
+           will place its bottom at y=0 (on the ground plane). -->
+      <a-box position="0 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
     </a-scene>
   </body>
 </html>
