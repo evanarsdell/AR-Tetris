@@ -1,375 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AR Tetris Game</title>
-
-  <!-- External JavaScript Libraries via CDNs -->
-  <!-- AR.js for AR functionalities -->
-  <script src="https://cdn.jsdelivr.net/npm/ar.js@latest"></script>
-  <!-- Three.js for advanced 3D graphics (if needed) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- A-Frame for easy AR/VR scene creation -->
-  <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-
-  <!-- Inline CSS -->
-  <style>
-    /* Ensure the entire page is full-screen */
-    html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
-      height: 100%;
-      width: 100%;
-    }
-    /* Make the A-Frame scene cover the full screen */
-    a-scene {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 0;
-    }
-    /* Hide the canvas element used for Tetris rendering (it's used as a texture) */
-    #tetrisCanvas {
-      display: none;
-    }
-  </style>
-</head>
-<body>
-
-  <!-- Hidden Canvas for Tetris Game Rendering -->
-  <!-- This canvas is updated with our Tetris game and used as a texture on the AR plane -->
-  <canvas id="tetrisCanvas" width="300" height="600"></canvas>
-
-  <!-- A-Frame AR Scene -->
-  <!-- The 'arjs' attribute enables AR with the webcam feed -->
-  <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-    <!-- AR Camera -->
-    <a-camera position="0 0 0"></a-camera>
-
-    <!-- A Plane that displays the Tetris game as a texture -->
-    <!-- Positioned so it appears in front of the camera -->
-    <a-plane id="gameBoard" 
-             position="0 1.5 -3" 
-             rotation="0 0 0" 
-             width="3" height="6" 
-             material="shader: flat; src: #tetrisCanvas;">
-    </a-plane>
-  </a-scene>
-
-  <!-- Inline JavaScript: Camera Access, Sensor Events, and Tetris Game Logic -->
-  <script>
-    // -------------- Camera Access --------------
-    // AR.js internally handles the video stream but we log camera access for debugging.
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then(function(stream) {
-          console.log("Camera access granted.");
-        })
-        .catch(function(err) {
-          console.error("Camera access denied:", err);
-        });
-    } else {
-      console.error("getUserMedia not supported on this device.");
-    }
-
-    // -------------- Device Orientation & Motion Controls --------------
-    let deviceGamma = 0; // left-right tilt
-    let deviceBeta = 0;  // front-to-back tilt
-
-    // For iOS 13+ devices, motion sensors require a user permission request.
-    function initMotionSensors() {
-      // Check if permission API is needed for deviceorientation
-      if (typeof DeviceOrientationEvent !== 'undefined' && 
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission()
-          .then(function(response) {
-            if (response === 'granted') {
-              window.addEventListener("deviceorientation", handleOrientation, true);
-            }
-          })
-          .catch(console.error);
-      } else {
-        // For devices that do not require permission.
-        window.addEventListener("deviceorientation", handleOrientation, true);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple AR Cube</title>
+    <!-- A-Frame Library -->
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <!-- AR.js for A-Frame -->
+    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
+    <style>
+      /* Make the scene full screen */
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        height: 100%;
+        width: 100%;
       }
+      a-scene {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- AR Scene: This will open your camera and overlay virtual objects -->
+    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+      <!-- AR Camera -->
+      <a-camera position="0 0 0"></a-camera>
       
-      // Similarly, you can add a request for 'devicemotion' if needed.
-      if (typeof DeviceMotionEvent !== 'undefined' && 
-          typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission()
-          .then(function(response) {
-            if (response === 'granted') {
-              window.addEventListener("devicemotion", handleMotion, true);
-            }
-          })
-          .catch(console.error);
-      } else {
-        window.addEventListener("devicemotion", handleMotion, true);
-      }
-    }
-    
-    function handleOrientation(event) {
-      deviceGamma = event.gamma; // left-right tilt
-      deviceBeta = event.beta;   // front-back tilt
-      // Uncomment to debug sensor values:
-      // console.log("Orientation - Gamma:", deviceGamma, "Beta:", deviceBeta);
-    }
-    
-    function handleMotion(event) {
-      // Additional devicemotion data could be handled here if needed.
-      // For now, we simply log acceleration (uncomment if debugging).
-      // console.log("Acceleration:", event.acceleration);
-    }
-    
-    // Initialize sensor event listeners.
-    initMotionSensors();
-
-    // -------------- Tetris Game Logic --------------
-    // Setup canvas and context for drawing the Tetris game.
-    const canvas = document.getElementById('tetrisCanvas');
-    const context = canvas.getContext('2d');
-    const COLS = 10;                     // Number of columns in the grid
-    const ROWS = 20;                     // Number of rows in the grid
-    const BLOCK_SIZE = canvas.width / COLS;
-    let dropInterval = 1000;             // Interval (in ms) for automatic drop
-    let lastDropTime = Date.now();
-    
-    // Create an empty grid.
-    let grid = [];
-    for (let row = 0; row < ROWS; row++) {
-      grid[row] = [];
-      for (let col = 0; col < COLS; col++) {
-        grid[row][col] = 0;
-      }
-    }
-
-    // Define Tetris pieces (tetrominoes) as matrices.
-    const pieces = {
-      'I': [
-        [0,0,0,0],
-        [1,1,1,1],
-        [0,0,0,0],
-        [0,0,0,0]
-      ],
-      'J': [
-        [1,0,0],
-        [1,1,1],
-        [0,0,0]
-      ],
-      'L': [
-        [0,0,1],
-        [1,1,1],
-        [0,0,0]
-      ],
-      'O': [
-        [1,1],
-        [1,1]
-      ],
-      'S': [
-        [0,1,1],
-        [1,1,0],
-        [0,0,0]
-      ],
-      'T': [
-        [0,1,0],
-        [1,1,1],
-        [0,0,0]
-      ],
-      'Z': [
-        [1,1,0],
-        [0,1,1],
-        [0,0,0]
-      ]
-    };
-
-    // Color mapping for each piece.
-    const pieceColors = {
-      'I': '#00f0f0',
-      'J': '#0000f0',
-      'L': '#f0a000',
-      'O': '#f0f000',
-      'S': '#00f000',
-      'T': '#a000f0',
-      'Z': '#f00000'
-    };
-
-    // The current falling piece.
-    let currentPiece = {
-      shape: null,
-      x: 0,
-      y: 0,
-      type: null
-    };
-
-    // Generate a new random Tetris piece.
-    function newPiece() {
-      const types = Object.keys(pieces);
-      const randType = types[Math.floor(Math.random() * types.length)];
-      currentPiece.shape = pieces[randType];
-      currentPiece.type = randType;
-      // Center the piece horizontally at the top of the grid.
-      currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2);
-      currentPiece.y = 0;
-    }
-    
-    // Check if placing the piece with a given offset results in a collision.
-    function collision(piece, grid, offsetX, offsetY) {
-      for (let y = 0; y < piece.shape.length; y++) {
-        for (let x = 0; x < piece.shape[y].length; x++) {
-          if (piece.shape[y][x]) {
-            let newX = piece.x + x + offsetX;
-            let newY = piece.y + y + offsetY;
-            // Check boundaries.
-            if (newX < 0 || newX >= COLS || newY >= ROWS) {
-              return true;
-            }
-            // Check if grid cell is already occupied.
-            if (newY >= 0 && grid[newY][newX]) {
-              return true;
-            }
-          }
-        }
-      }
-      return false;
-    }
-
-    // Merge the current piece into the grid.
-    function mergePiece(piece, grid) {
-      for (let y = 0; y < piece.shape.length; y++) {
-        for (let x = 0; x < piece.shape[y].length; x++) {
-          if (piece.shape[y][x]) {
-            if (piece.y + y >= 0) { // Ignore parts above the grid.
-              grid[piece.y + y][piece.x + x] = piece.type;
-            }
-          }
-        }
-      }
-    }
-
-    // Rotate the current piece (clockwise).
-    function rotate(piece) {
-      const rotated = [];
-      for (let x = 0; x < piece.shape[0].length; x++) {
-        rotated[x] = [];
-        for (let y = piece.shape.length - 1; y >= 0; y--) {
-          rotated[x].push(piece.shape[y][x]);
-        }
-      }
-      return rotated;
-    }
-
-    // Clear complete rows from the grid.
-    function clearRows() {
-      for (let y = ROWS - 1; y >= 0; y--) {
-        if (grid[y].every(cell => cell !== 0)) {
-          // Remove the full row.
-          grid.splice(y, 1);
-          // Add an empty row at the top.
-          grid.unshift(new Array(COLS).fill(0));
-          y++; // Re-check this row index after shifting.
-        }
-      }
-    }
-
-    // Draw the game state onto the canvas.
-    function draw() {
-      // Clear the canvas.
-      context.fillStyle = "#000";
-      context.fillRect(0, 0, canvas.width, canvas.height);
+      <!-- A simple cube floating slightly above the ground -->
+      <a-box position="0 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
       
-      // Draw the static grid.
-      for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-          if (grid[y][x]) {
-            context.fillStyle = pieceColors[grid[y][x]];
-            context.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-            context.strokeStyle = "#111";
-            context.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-          }
-        }
-      }
-      
-      // Draw the current falling piece.
-      if (currentPiece.shape) {
-        context.fillStyle = pieceColors[currentPiece.type];
-        for (let y = 0; y < currentPiece.shape.length; y++) {
-          for (let x = 0; x < currentPiece.shape[y].length; x++) {
-            if (currentPiece.shape[y][x]) {
-              context.fillRect((currentPiece.x + x) * BLOCK_SIZE, (currentPiece.y + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-              context.strokeStyle = "#111";
-              context.strokeRect((currentPiece.x + x) * BLOCK_SIZE, (currentPiece.y + y) * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-            }
-          }
-        }
-      }
-    }
-
-    // Update the game state and redraw.
-    function update() {
-      let now = Date.now();
-      let delta = now - lastDropTime;
-      if (delta > dropInterval) {
-        // Attempt to move the piece down.
-        if (!collision(currentPiece, grid, 0, 1)) {
-          currentPiece.y++;
-        } else {
-          // If collision occurs, merge the piece into the grid and start a new piece.
-          mergePiece(currentPiece, grid);
-          clearRows();
-          newPiece();
-        }
-        lastDropTime = now;
-      }
-      
-      // -------------- Sensor-Based Controls --------------
-      // Use left/right tilt (gamma) to move the piece horizontally.
-      if (deviceGamma > 15) {  // Tilt right
-        if (!collision(currentPiece, grid, 1, 0)) {
-          currentPiece.x++;
-          deviceGamma = 0;  // Reset to prevent continuous movement
-        }
-      } else if (deviceGamma < -15) {  // Tilt left
-        if (!collision(currentPiece, grid, -1, 0)) {
-          currentPiece.x--;
-          deviceGamma = 0;
-        }
-      }
-      
-      // Use forward tilt (beta) to trigger a rotation.
-      if (deviceBeta > 40) {
-        let rotatedShape = rotate(currentPiece);
-        let originalShape = currentPiece.shape;
-        currentPiece.shape = rotatedShape;
-        if (collision(currentPiece, grid, 0, 0)) {
-          currentPiece.shape = originalShape; // Revert if rotation causes collision
-        }
-        deviceBeta = 0;
-      }
-      
-      // Redraw the game state.
-      draw();
-      
-      // -------------- Update AR Texture --------------
-      // Refresh the AR plane's texture so that our canvas updates show in the scene.
-      let gameBoardEl = document.querySelector('#gameBoard');
-      if (gameBoardEl && gameBoardEl.components && gameBoardEl.components.material) {
-        if (gameBoardEl.components.material.material.map) {
-          gameBoardEl.components.material.material.map.needsUpdate = true;
-        }
-      }
-      
-      // Continue the game loop.
-      requestAnimationFrame(update);
-    }
-    
-    // Initialize the game.
-    newPiece();
-    update();
-  </script>
-</body>
+      <!-- A ground plane to help orient the scene -->
+      <a-plane rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
+    </a-scene>
+  </body>
 </html>
