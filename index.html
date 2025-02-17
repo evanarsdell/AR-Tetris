@@ -1,48 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AR Tetris Game</title>
-  
+
   <!-- External JavaScript Libraries via CDNs -->
   <!-- AR.js for AR functionalities -->
   <script src="https://cdn.jsdelivr.net/npm/ar.js@latest"></script>
-  <!-- Three.js for 3D graphics (if needed) -->
+  <!-- Three.js for advanced 3D graphics (if needed) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <!-- A-Frame for easy AR/VR scene creation -->
   <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-  
+
   <!-- Inline CSS -->
   <style>
-    /* Hide the canvas element since it will be used as a texture */
-    #tetrisCanvas {
-      display: none;
-    }
-    
-    /* Ensure a full-screen experience */
+    /* Ensure the entire page is full-screen */
     html, body {
       margin: 0;
       padding: 0;
       overflow: hidden;
       background: #000;
+      height: 100%;
+      width: 100%;
+    }
+    /* Make the A-Frame scene cover the full screen */
+    a-scene {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+    /* Hide the canvas element used for Tetris rendering (it's used as a texture) */
+    #tetrisCanvas {
+      display: none;
     }
   </style>
 </head>
 <body>
 
   <!-- Hidden Canvas for Tetris Game Rendering -->
-  <!-- This canvas will be updated with our Tetris game and used as a texture on the AR plane -->
+  <!-- This canvas is updated with our Tetris game and used as a texture on the AR plane -->
   <canvas id="tetrisCanvas" width="300" height="600"></canvas>
-  
+
   <!-- A-Frame AR Scene -->
-  <!-- The arjs attribute integrates AR.js using the device's webcam -->
-  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
+  <!-- The 'arjs' attribute enables AR with the webcam feed -->
+  <a-scene vr-mode-ui="enabled: false" embedded arjs="sourceType: webcam; debugUIEnabled: false;">
     <!-- AR Camera -->
     <a-camera position="0 0 0"></a-camera>
-    
+
     <!-- A Plane that displays the Tetris game as a texture -->
-    <!-- Positioned in AR space so that it appears over the live camera feed -->
+    <!-- Positioned so it appears in front of the camera -->
     <a-plane id="gameBoard" 
              position="0 1.5 -3" 
              rotation="0 0 0" 
@@ -50,17 +60,15 @@
              material="shader: flat; src: #tetrisCanvas;">
     </a-plane>
   </a-scene>
-  
+
   <!-- Inline JavaScript: Camera Access, Sensor Events, and Tetris Game Logic -->
   <script>
     // -------------- Camera Access --------------
-    // Request camera access using getUserMedia. Although AR.js handles the video feed,
-    // this snippet ensures that we log access or errors.
+    // AR.js internally handles the video stream but we log camera access for debugging.
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ video: true })
         .then(function(stream) {
           console.log("Camera access granted.");
-          // The video stream is managed by AR.js automatically.
         })
         .catch(function(err) {
           console.error("Camera access denied:", err);
@@ -68,20 +76,58 @@
     } else {
       console.error("getUserMedia not supported on this device.");
     }
-    
-    // -------------- Device Orientation & Motion Controls --------------
-    // Global variables to store sensor values.
-    let deviceGamma = 0; // left-right tilt
-    let deviceBeta = 0;  // forward-back tilt
 
-    // Listen for device orientation changes.
-    window.addEventListener("deviceorientation", function(event) {
-      // Gamma (left-to-right tilt) and Beta (front-to-back tilt)
-      deviceGamma = event.gamma;
-      deviceBeta = event.beta;
+    // -------------- Device Orientation & Motion Controls --------------
+    let deviceGamma = 0; // left-right tilt
+    let deviceBeta = 0;  // front-to-back tilt
+
+    // For iOS 13+ devices, motion sensors require a user permission request.
+    function initMotionSensors() {
+      // Check if permission API is needed for deviceorientation
+      if (typeof DeviceOrientationEvent !== 'undefined' && 
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(function(response) {
+            if (response === 'granted') {
+              window.addEventListener("deviceorientation", handleOrientation, true);
+            }
+          })
+          .catch(console.error);
+      } else {
+        // For devices that do not require permission.
+        window.addEventListener("deviceorientation", handleOrientation, true);
+      }
+      
+      // Similarly, you can add a request for 'devicemotion' if needed.
+      if (typeof DeviceMotionEvent !== 'undefined' && 
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+          .then(function(response) {
+            if (response === 'granted') {
+              window.addEventListener("devicemotion", handleMotion, true);
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener("devicemotion", handleMotion, true);
+      }
+    }
+    
+    function handleOrientation(event) {
+      deviceGamma = event.gamma; // left-right tilt
+      deviceBeta = event.beta;   // front-back tilt
       // Uncomment to debug sensor values:
-      // console.log("Gamma:", deviceGamma, "Beta:", deviceBeta);
-    }, true);
+      // console.log("Orientation - Gamma:", deviceGamma, "Beta:", deviceBeta);
+    }
+    
+    function handleMotion(event) {
+      // Additional devicemotion data could be handled here if needed.
+      // For now, we simply log acceleration (uncomment if debugging).
+      // console.log("Acceleration:", event.acceleration);
+    }
+    
+    // Initialize sensor event listeners.
+    initMotionSensors();
 
     // -------------- Tetris Game Logic --------------
     // Setup canvas and context for drawing the Tetris game.
@@ -225,7 +271,7 @@
           grid.splice(y, 1);
           // Add an empty row at the top.
           grid.unshift(new Array(COLS).fill(0));
-          y++; // Check the same row index after shifting.
+          y++; // Re-check this row index after shifting.
         }
       }
     }
@@ -309,10 +355,12 @@
       draw();
       
       // -------------- Update AR Texture --------------
-      // Mark the material texture as needing an update so the AR plane reflects changes.
+      // Refresh the AR plane's texture so that our canvas updates show in the scene.
       let gameBoardEl = document.querySelector('#gameBoard');
       if (gameBoardEl && gameBoardEl.components && gameBoardEl.components.material) {
-        gameBoardEl.components.material.material.map.needsUpdate = true;
+        if (gameBoardEl.components.material.material.map) {
+          gameBoardEl.components.material.material.map.needsUpdate = true;
+        }
       }
       
       // Continue the game loop.
