@@ -7,22 +7,16 @@
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-    #hud {
+    #hud, #health {
       position: absolute;
-      top: 10px; right: 10px;
+      top: 10px;
       color: #fff;
       font-family: sans-serif;
       font-size: 20px;
       z-index: 1;
     }
-    #health {
-      position: absolute;
-      top: 10px; left: 10px;
-      color: #fff;
-      font-family: sans-serif;
-      font-size: 20px;
-      z-index: 1;
-    }
+    #hud { right: 10px; }
+    #health { left: 10px; }
     #gameOverScreen {
       position: absolute;
       top: 0; left: 0;
@@ -53,8 +47,10 @@
     <button id="restartBtn">Restart</button>
   </div>
 
+  <!-- Three.js CDN -->
   <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
   <script>
+    // --- Global State ---
     let scene, camera, renderer;
     let player, enemies = [], bullets = [];
     let keys = {};
@@ -62,39 +58,43 @@
     let spawnInterval = 2000, lastSpawn = 0;
     let gameOverFlag = false;
     let lastTime = performance.now();
-    const rotationSpeed = Math.PI; // radians per second
+    const MOVE_SPEED = 10;               // units per second
+    const ROTATE_SPEED = Math.PI;        // radians per second
 
+    // --- Initialization ---
     init();
     animate(lastTime);
 
     function init() {
-      // Scene & camera
+      // Scene & Camera
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
       window.addEventListener('resize', onResize);
 
-      // Lighting
+      // Lights
       scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-      const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-      dl.position.set(5, 10, 7);
-      scene.add(dl);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(5, 10, 7);
+      scene.add(dirLight);
 
       // Floor
       const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(200, 200),
         new THREE.MeshPhongMaterial({ color: 0x222222 })
       );
-      floor.rotation.x = -Math.PI/2;
+      floor.rotation.x = -Math.PI / 2;
       scene.add(floor);
 
-      // Player
+      // Player Stick Figure with Gun
       player = createStickFigureWithGun(0x00ff00);
       scene.add(player);
 
-      // Input
+      // Input Handling
       document.addEventListener('keydown', e => {
         keys[e.key.toLowerCase()] = true;
         if (e.code === 'Space' && !gameOverFlag) shoot();
@@ -103,20 +103,20 @@
         keys[e.key.toLowerCase()] = false;
       });
 
-      // Restart button
+      // Restart Button
       document.getElementById('restartBtn').addEventListener('click', restart);
     }
 
     function onResize() {
-      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Build a stick figure with a visible gun in the right hand
+    // --- Stick Figure + Gun Factory ---
     function createStickFigureWithGun(color) {
       const group = new THREE.Group();
-      const mat = new THREE.MeshBasicMaterial({ color });
+      const mat = new THREE.MeshPhongMaterial({ color });
 
       // Head
       const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), mat);
@@ -132,17 +132,14 @@
       const armGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
       const leftArm = new THREE.Mesh(armGeom, mat);
       leftArm.position.set(-0.75, 1.5, 0);
-      leftArm.rotation.z = Math.PI/2;
+      leftArm.rotation.z = Math.PI / 2;
       group.add(leftArm);
-
       const rightArm = leftArm.clone();
       rightArm.position.x = 0.75;
       group.add(rightArm);
 
-      // Gun on right arm
-      const gunMat = new THREE.MeshBasicMaterial({ color: 0x555555 });
-      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.1), gunMat);
-      // position at end of right arm
+      // Gun on Right Arm (same color as body so no gray)
+      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.1), mat);
       gun.position.set(1.25, 1.5, 0);
       group.add(gun);
 
@@ -151,7 +148,6 @@
       const leftLeg = new THREE.Mesh(legGeom, mat);
       leftLeg.position.set(-0.2, 0.5, 0);
       group.add(leftLeg);
-
       const rightLeg = leftLeg.clone();
       rightLeg.position.x = 0.2;
       group.add(rightLeg);
@@ -159,108 +155,135 @@
       return group;
     }
 
+    // --- Shooting ---
     function shoot() {
-      const bullet = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffff00 })
-      );
+      const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      const bulletGeo = new THREE.SphereGeometry(0.1, 8, 8);
+      const bulletMesh = new THREE.Mesh(bulletGeo, bulletMat);
+
+      // Direction based on player rotation
       const dir = new THREE.Vector3(
         Math.sin(player.rotation.y),
         0,
         Math.cos(player.rotation.y)
       );
-      bullet.position.copy(player.position)
-                    .add(dir.clone().multiplyScalar(1.5))
-                    .add(new THREE.Vector3(0, 1.5, 0));
-      scene.add(bullet);
-      bullets.push({ mesh: bullet, dir, life: 0 });
+
+      bulletMesh.position.copy(player.position)
+                       .add(dir.clone().multiplyScalar(1.5))
+                       .add(new THREE.Vector3(0, 1.5, 0));
+
+      scene.add(bulletMesh);
+      bullets.push({ mesh: bulletMesh, dir, life: 0 });
     }
 
+    // --- Enemy Spawning ---
     function spawnEnemy() {
       const enemy = createStickFigureWithGun(0xff0000);
-      const angle = Math.random()*Math.PI*2;
-      const dist = 50;
+      // Scale up so they're easy to hit
+      enemy.scale.set(1.5, 1.5, 1.5);
+
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 50;
       enemy.position.set(
-        player.position.x + Math.cos(angle)*dist,
+        player.position.x + Math.cos(angle) * distance,
         0,
-        player.position.z + Math.sin(angle)*dist
+        player.position.z + Math.sin(angle) * distance
       );
-      enemy.userData.speed = 1 + score*0.01;
+      // Speed up slightly as score climbs
+      enemy.userData.speed = 1 + score * 0.01;
+
       scene.add(enemy);
       enemies.push(enemy);
-      spawnInterval = Math.max(500, spawnInterval*0.98);
+
+      // Increase spawn rate
+      spawnInterval = Math.max(500, spawnInterval * 0.98);
     }
 
+    // --- Main Loop ---
     function animate(time) {
-      const dt = (time - lastTime)/1000;
+      const delta = (time - lastTime) / 1000;
       lastTime = time;
 
       if (!gameOverFlag) {
-        // spawn
+        // Spawn enemies
         if (time - lastSpawn > spawnInterval) {
           spawnEnemy();
           lastSpawn = time;
         }
 
-        // rotate with arrow keys
-        if (keys['arrowleft'])  player.rotation.y += rotationSpeed * dt;
-        if (keys['arrowright']) player.rotation.y -= rotationSpeed * dt;
+        // Rotation via Left/Right Arrows
+        if (keys['arrowleft'])  player.rotation.y += ROTATE_SPEED * delta;
+        if (keys['arrowright']) player.rotation.y -= ROTATE_SPEED * delta;
 
-        // movement WASD
+        // Movement via WASD (normalized)
         let dx = 0, dz = 0;
         if (keys['w']) { dx += Math.sin(player.rotation.y); dz += Math.cos(player.rotation.y); }
         if (keys['s']) { dx -= Math.sin(player.rotation.y); dz -= Math.cos(player.rotation.y); }
         if (keys['a']) { dx += Math.sin(player.rotation.y - Math.PI/2); dz += Math.cos(player.rotation.y - Math.PI/2); }
         if (keys['d']) { dx += Math.sin(player.rotation.y + Math.PI/2); dz += Math.cos(player.rotation.y + Math.PI/2); }
-        const speed = 10;
-        player.position.x += dx*speed*dt;
-        player.position.z += dz*speed*dt;
-        // clamp
+        const len = Math.hypot(dx, dz);
+        if (len > 0) {
+          dx /= len; dz /= len;
+          player.position.x += dx * MOVE_SPEED * delta;
+          player.position.z += dz * MOVE_SPEED * delta;
+        }
+        // Keep player in bounds
         player.position.x = THREE.MathUtils.clamp(player.position.x, -50, 50);
         player.position.z = THREE.MathUtils.clamp(player.position.z, -50, 50);
 
-        // bullets
+        // Update bullets
         bullets = bullets.filter(b => {
-          b.mesh.position.add(b.dir.clone().multiplyScalar(50*dt));
-          b.life += dt;
-          if (b.life > 2) { scene.remove(b.mesh); return false; }
+          b.mesh.position.add(b.dir.clone().multiplyScalar(50 * delta));
+          b.life += delta;
+          if (b.life > 2) {
+            scene.remove(b.mesh);
+            return false;
+          }
           return true;
         });
 
-        // enemies
+        // Update enemies
         enemies = enemies.filter(e => {
-          const dir = new THREE.Vector3().subVectors(player.position, e.position).normalize();
-          e.position.add(dir.multiplyScalar(e.userData.speed*dt));
+          // Move toward player
+          const toPlayer = new THREE.Vector3().subVectors(player.position, e.position).normalize();
+          e.position.add(toPlayer.multiplyScalar(e.userData.speed * delta));
           e.rotation.y = Math.atan2(player.position.x - e.position.x, player.position.z - e.position.z);
 
-          // hit player
+          // Damage on contact
           if (e.position.distanceTo(player.position) < 1) {
             health -= 10;
             updateHUD();
             scene.remove(e);
             return false;
           }
-          // hit by bullet
-          for (let i=0; i<bullets.length; i++) {
-            if (bullets[i].mesh.position.distanceTo(e.position) < 1) {
+
+          // Bullet collision (2D check)
+          for (let i = 0; i < bullets.length; i++) {
+            const b = bullets[i].mesh.position;
+            const exz = new THREE.Vector2(e.position.x, e.position.z);
+            const bxz = new THREE.Vector2(b.x, b.z);
+            if (bxz.distanceTo(exz) < 1.5) {
               score++;
               updateHUD();
               scene.remove(e);
               scene.remove(bullets[i].mesh);
-              bullets.splice(i,1);
+              bullets.splice(i, 1);
               return false;
             }
           }
           return true;
         });
 
+        // Check game over
         if (health <= 0) endGame();
 
-        // camera follow
-        const offset = new THREE.Vector3(
-          -Math.sin(player.rotation.y)*10, 5, -Math.cos(player.rotation.y)*10
+        // Camera follows behind & above player
+        const camOffset = new THREE.Vector3(
+          -Math.sin(player.rotation.y) * 10,
+           5,
+          -Math.cos(player.rotation.y) * 10
         );
-        camera.position.copy(player.position).add(offset);
+        camera.position.copy(player.position).add(camOffset);
         camera.lookAt(player.position);
       }
 
@@ -268,9 +291,10 @@
       if (!gameOverFlag) requestAnimationFrame(animate);
     }
 
+    // --- HUD & Game State ---
     function updateHUD() {
       document.getElementById('score').innerText = score;
-      document.getElementById('hp').innerText = Math.max(0, health);
+      document.getElementById('hp').innerText    = Math.max(0, health);
     }
 
     function endGame() {
@@ -280,13 +304,13 @@
     }
 
     function restart() {
-      // clean up
+      // Cleanup existing
       enemies.forEach(e => scene.remove(e));
       bullets.forEach(b => scene.remove(b.mesh));
       enemies = [];
       bullets = [];
 
-      // reset state
+      // Reset
       score = 0;
       health = 100;
       spawnInterval = 2000;
