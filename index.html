@@ -1,45 +1,321 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Simple AR Cube on Ground</title>
-    <!-- A-Frame Library -->
-    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-    <!-- AR.js for A-Frame -->
-    <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
-    <style>
-      /* Make the scene full screen */
-      html, body {
-        margin: 0;
-        padding: 0;
-        overflow: hidden;
-        height: 100%;
-        width: 100%;
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Stick Figure Shooter</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #hud {
+      position: absolute;
+      top: 10px; right: 10px;
+      color: #fff;
+      font-family: sans-serif;
+      font-size: 20px;
+      z-index: 1;
+    }
+    #health {
+      position: absolute;
+      top: 10px; left: 10px;
+      color: #fff;
+      font-family: sans-serif;
+      font-size: 20px;
+      z-index: 1;
+    }
+    #gameOverScreen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      color: #fff;
+      font-family: sans-serif;
+      z-index: 2;
+    }
+    #gameOverScreen button {
+      padding: 10px 20px;
+      font-size: 20px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">Score: <span id="score">0</span></div>
+  <div id="health">HP: <span id="hp">100</span></div>
+  <div id="gameOverScreen">
+    <h1>Game Over</h1>
+    <p>Your Score: <span id="finalScore">0</span></p>
+    <button id="restartBtn">Restart</button>
+  </div>
+
+  <!-- Three.js from CDN -->
+  <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
+  <script>
+    let scene, camera, renderer;
+    let player, enemies = [], bullets = [];
+    let keysPressed = {};
+    let score = 0, health = 100;
+    let spawnInterval = 2000, lastSpawnTime = 0;
+    let isGameOver = false;
+    let prevTime = performance.now();
+    const mouse = new THREE.Vector2();
+    const targetPoint = new THREE.Vector3();
+
+    init();
+    animate(prevTime);
+
+    function init() {
+      // Scene & Camera
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      window.addEventListener('resize', onWindowResize);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(5, 10, 7);
+      scene.add(dirLight);
+
+      // Floor
+      const floor = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.MeshPhongMaterial({ color: 0x222222 })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      scene.add(floor);
+
+      // Player
+      player = createStickFigure(0x00ff00);
+      player.position.set(0, 0, 0);
+      scene.add(player);
+
+      // Input
+      document.addEventListener('keydown', e => keysPressed[e.key.toLowerCase()] = true);
+      document.addEventListener('keyup',   e => keysPressed[e.key.toLowerCase()] = false);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mousedown', onMouseDown);
+      document.getElementById('restartBtn').addEventListener('click', restartGame);
+    }
+
+    // Create a simple 3D stick figure from primitives
+    function createStickFigure(color) {
+      const group = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color });
+
+      // Head
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), mat);
+      head.position.y = 2.2;
+      group.add(head);
+
+      // Torso
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 8), mat);
+      torso.position.y = 1.0;
+      group.add(torso);
+
+      // Arms
+      const armGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+      const leftArm = new THREE.Mesh(armGeom, mat);
+      leftArm.position.set(-0.75, 1.5, 0);
+      leftArm.rotation.z = Math.PI / 2;
+      group.add(leftArm);
+
+      const rightArm = leftArm.clone();
+      rightArm.position.x = 0.75;
+      group.add(rightArm);
+
+      // Legs
+      const legGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
+      const leftLeg = new THREE.Mesh(legGeom, mat);
+      leftLeg.position.set(-0.2, 0.5, 0);
+      group.add(leftLeg);
+
+      const rightLeg = leftLeg.clone();
+      rightLeg.position.x = 0.2;
+      group.add(rightLeg);
+
+      return group;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onMouseMove(event) {
+      // Normalize mouse coords
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      // Raycast onto ground plane to get target point
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      raycaster.ray.intersectPlane(plane, targetPoint);
+
+      // Rotate player to face that point
+      const dx = targetPoint.x - player.position.x;
+      const dz = targetPoint.z - player.position.z;
+      player.rotation.y = Math.atan2(dx, dz);
+    }
+
+    function onMouseDown(event) {
+      if (isGameOver) return;
+      if (event.button === 0) shoot();
+    }
+
+    function shoot() {
+      const bullet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffff00 })
+      );
+      const dir = new THREE.Vector3(
+        Math.sin(player.rotation.y),
+        0,
+        Math.cos(player.rotation.y)
+      );
+      bullet.position.copy(player.position)
+                    .add(dir.clone().multiplyScalar(1.5))
+                    .add(new THREE.Vector3(0, 1.5, 0));
+      scene.add(bullet);
+      bullets.push({ mesh: bullet, dir, life: 0 });
+    }
+
+    function spawnEnemy() {
+      const enemy = createStickFigure(0xff0000);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 50;
+      enemy.position.set(
+        player.position.x + Math.cos(angle) * dist,
+        0,
+        player.position.z + Math.sin(angle) * dist
+      );
+      enemy.userData.speed = 1 + (score * 0.01);
+      scene.add(enemy);
+      enemies.push(enemy);
+
+      // Increase spawn rate (harder over time)
+      spawnInterval = Math.max(500, spawnInterval * 0.98);
+    }
+
+    function animate(time) {
+      const delta = (time - prevTime) / 1000;
+      prevTime = time;
+
+      if (!isGameOver) {
+        // Enemy spawning
+        if (time - lastSpawnTime > spawnInterval) {
+          spawnEnemy();
+          lastSpawnTime = time;
+        }
+
+        // Player movement (WASD relative to facing)
+        const moveSpeed = 10;
+        let mx = 0, mz = 0;
+        if (keysPressed['w']) { mx += Math.sin(player.rotation.y); mz += Math.cos(player.rotation.y); }
+        if (keysPressed['s']) { mx -= Math.sin(player.rotation.y); mz -= Math.cos(player.rotation.y); }
+        if (keysPressed['a']) { mx += Math.sin(player.rotation.y - Math.PI/2); mz += Math.cos(player.rotation.y - Math.PI/2); }
+        if (keysPressed['d']) { mx += Math.sin(player.rotation.y + Math.PI/2); mz += Math.cos(player.rotation.y + Math.PI/2); }
+
+        player.position.x += mx * moveSpeed * delta;
+        player.position.z += mz * moveSpeed * delta;
+
+        // Clamp inside arena
+        player.position.x = THREE.MathUtils.clamp(player.position.x, -50, 50);
+        player.position.z = THREE.MathUtils.clamp(player.position.z, -50, 50);
+
+        // Update bullets
+        bullets = bullets.filter(b => {
+          b.mesh.position.add(b.dir.clone().multiplyScalar(50 * delta));
+          b.life += delta;
+          if (b.life >= 2) { scene.remove(b.mesh); return false; }
+          return true;
+        });
+
+        // Update enemies
+        enemies = enemies.filter(e => {
+          const dir = new THREE.Vector3().subVectors(player.position, e.position).normalize();
+          e.position.add(dir.multiplyScalar(e.userData.speed * delta));
+          e.rotation.y = Math.atan2(player.position.x - e.position.x, player.position.z - e.position.z);
+
+          // Collision with player
+          if (e.position.distanceTo(player.position) < 1) {
+            health -= 10;
+            updateHUD();
+            scene.remove(e);
+            return false;
+          }
+
+          // Collision with bullets
+          for (let i = 0; i < bullets.length; i++) {
+            if (bullets[i].mesh.position.distanceTo(e.position) < 1) {
+              score++;
+              updateHUD();
+              scene.remove(e);
+              scene.remove(bullets[i].mesh);
+              bullets.splice(i, 1);
+              return false;
+            }
+          }
+
+          return true;
+        });
+
+        if (health <= 0) gameOver();
+
+        // Camera follows behind & above player
+        const offset = new THREE.Vector3(
+          -Math.sin(player.rotation.y) * 10,
+          5,
+          -Math.cos(player.rotation.y) * 10
+        );
+        camera.position.copy(player.position).add(offset);
+        camera.lookAt(player.position);
       }
-      a-scene {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
-  </head>
-  <body>
-    <!-- AR Scene: This will open your camera and overlay virtual objects -->
-    <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false;">
-      <!-- AR Camera -->
-      <a-camera position="0 0 0"></a-camera>
-      
-      <!-- Virtual ground plane at y=0 -->
-      <a-plane position="0 0 0" rotation="-90 0 0" width="10" height="10" color="#7BC8A4"></a-plane>
-      
-      <!-- Cube positioned so its bottom touches the ground.
-           By default, the <a-box> has its center at its midpoint.
-           If the cube is 1 unit tall, setting its y position to 0.5
-           will place its bottom at y=0 (on the ground plane). -->
-      <a-box position="0 0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
-    </a-scene>
-  </body>
+
+      renderer.render(scene, camera);
+      if (!isGameOver) requestAnimationFrame(animate);
+    }
+
+    function updateHUD() {
+      document.getElementById('score').innerText = score;
+      document.getElementById('hp').innerText = Math.max(0, health);
+    }
+
+    function gameOver() {
+      isGameOver = true;
+      document.getElementById('finalScore').innerText = score;
+      document.getElementById('gameOverScreen').style.display = 'flex';
+    }
+
+    function restartGame() {
+      // Clean up
+      enemies.forEach(e => scene.remove(e));
+      bullets.forEach(b => scene.remove(b.mesh));
+      enemies = [];
+      bullets = [];
+
+      // Reset state
+      score = 0;
+      health = 100;
+      spawnInterval = 2000;
+      lastSpawnTime = performance.now();
+      isGameOver = false;
+      updateHUD();
+      document.getElementById('gameOverScreen').style.display = 'none';
+      prevTime = performance.now();
+      animate(prevTime);
+    }
+  </script>
+</body>
 </html>
