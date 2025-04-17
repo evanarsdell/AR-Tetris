@@ -29,12 +29,20 @@
       color: #fff;
       font-family: sans-serif;
       z-index: 2;
+      text-align: center;
     }
-    #gameOverScreen button {
-      padding: 10px 20px;
-      font-size: 20px;
-      cursor: pointer;
+    #gameOverScreen input, #gameOverScreen button {
+      margin: 5px;
+      padding: 8px;
+      font-size: 16px;
+    }
+    #highScores {
       margin-top: 10px;
+    }
+    #highScores ol {
+      text-align: left;
+      display: inline-block;
+      padding-left: 20px;
     }
   </style>
 </head>
@@ -44,13 +52,19 @@
   <div id="gameOverScreen">
     <h1>Game Over</h1>
     <p>Your Score: <span id="finalScore">0</span></p>
+    <div id="highScores">
+      <h2>High Scores</h2>
+      <ol id="highScoreList"></ol>
+      <input type="text" id="usernameInput" placeholder="Enter your name" maxlength="10"/>
+      <button id="submitScoreBtn">Submit Score</button>
+    </div>
     <button id="restartBtn">Restart</button>
   </div>
 
-  <!-- Three.js CDN -->
   <script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
   <script>
-    // --- Global State ---
+    // --- Constants & State ---
+    const HIGHSCORES_KEY = 'stickShootHighScores';
     let scene, camera, renderer;
     let player, enemies = [], bullets = [];
     let keys = {};
@@ -58,19 +72,16 @@
     let spawnInterval = 2000, lastSpawn = 0;
     let gameOverFlag = false;
     let lastTime = performance.now();
-    const MOVE_SPEED = 10;               // units per second
-    const ROTATE_SPEED = Math.PI;        // radians per second
+    const MOVE_SPEED = 10;
+    const ROTATE_SPEED = Math.PI;
 
-    // --- Initialization ---
     init();
     animate(lastTime);
 
     function init() {
       // Scene & Camera
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-      // Renderer
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
@@ -78,23 +89,23 @@
 
       // Lights
       scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      dirLight.position.set(5, 10, 7);
-      scene.add(dirLight);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(5,10,7);
+      scene.add(dir);
 
       // Floor
       const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(200, 200),
+        new THREE.PlaneGeometry(200,200),
         new THREE.MeshPhongMaterial({ color: 0x222222 })
       );
-      floor.rotation.x = -Math.PI / 2;
+      floor.rotation.x = -Math.PI/2;
       scene.add(floor);
 
-      // Player Stick Figure with Gun
+      // Player
       player = createStickFigureWithGun(0x00ff00);
       scene.add(player);
 
-      // Input Handling
+      // Input
       document.addEventListener('keydown', e => {
         keys[e.key.toLowerCase()] = true;
         if (e.code === 'Space' && !gameOverFlag) shoot();
@@ -103,221 +114,271 @@
         keys[e.key.toLowerCase()] = false;
       });
 
-      // Restart Button
+      // Buttons
       document.getElementById('restartBtn').addEventListener('click', restart);
+      document.getElementById('submitScoreBtn').addEventListener('click', submitHighScore);
     }
 
     function onResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // --- Stick Figure + Gun Factory ---
+    // --- Player Stick Figure + Gun ---
     function createStickFigureWithGun(color) {
-      const group = new THREE.Group();
+      const g = new THREE.Group();
       const mat = new THREE.MeshPhongMaterial({ color });
 
       // Head
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), mat);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), mat);
       head.position.y = 2.2;
-      group.add(head);
+      g.add(head);
 
       // Torso
-      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.5, 8), mat);
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,1.5,8), mat);
       torso.position.y = 1.0;
-      group.add(torso);
+      g.add(torso);
 
       // Arms
-      const armGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
-      const leftArm = new THREE.Mesh(armGeom, mat);
-      leftArm.position.set(-0.75, 1.5, 0);
-      leftArm.rotation.z = Math.PI / 2;
-      group.add(leftArm);
+      const arm = new THREE.CylinderGeometry(0.05,0.05,1,8);
+      const leftArm = new THREE.Mesh(arm,mat);
+      leftArm.position.set(-0.75,1.5,0); leftArm.rotation.z = Math.PI/2;
+      g.add(leftArm);
       const rightArm = leftArm.clone();
       rightArm.position.x = 0.75;
-      group.add(rightArm);
+      g.add(rightArm);
 
-      // Gun on Right Arm (same color as body so no gray)
-      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.1, 0.1), mat);
-      gun.position.set(1.25, 1.5, 0);
-      group.add(gun);
+      // Gun
+      const gun = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.1,0.1),mat);
+      gun.position.set(1.25,1.5,0);
+      g.add(gun);
 
       // Legs
-      const legGeom = new THREE.CylinderGeometry(0.05, 0.05, 1, 8);
-      const leftLeg = new THREE.Mesh(legGeom, mat);
-      leftLeg.position.set(-0.2, 0.5, 0);
-      group.add(leftLeg);
+      const leg = new THREE.CylinderGeometry(0.05,0.05,1,8);
+      const leftLeg = new THREE.Mesh(leg,mat);
+      leftLeg.position.set(-0.2,0.5,0);
+      g.add(leftLeg);
       const rightLeg = leftLeg.clone();
       rightLeg.position.x = 0.2;
-      group.add(rightLeg);
+      g.add(rightLeg);
 
-      return group;
+      return g;
+    }
+
+    // --- Enemy Figure ---
+    function createEnemyFigure() {
+      const g = new THREE.Group();
+      const mat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+      const faceMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+      // Head
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.5,8,8), mat);
+      head.position.y = 2.4;
+      g.add(head);
+
+      // Evil Face: eyes & smile
+      const eyeGeom = new THREE.SphereGeometry(0.07,6,6);
+      const leftEye = new THREE.Mesh(eyeGeom, faceMat);
+      leftEye.position.set(-0.15,2.5,0.45);
+      g.add(leftEye);
+      const rightEye = leftEye.clone();
+      rightEye.position.x = 0.15;
+      g.add(rightEye);
+      const smile = new THREE.Mesh(
+        new THREE.TorusGeometry(0.3,0.04,6,12,Math.PI),
+        faceMat
+      );
+      smile.position.set(0,2.3,0.45);
+      smile.rotation.x = Math.PI;
+      g.add(smile);
+
+      // Ponytail
+      const pony = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.1,0.6,6), mat);
+      pony.position.set(0,2.4,-0.4);
+      pony.rotation.x = Math.PI/2;
+      g.add(pony);
+
+      // Wider Torso
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,1.5,8), mat);
+      torso.position.y = 1.0;
+      g.add(torso);
+
+      // Arms
+      const arm = new THREE.CylinderGeometry(0.05,0.05,1,8);
+      const leftArm = new THREE.Mesh(arm,mat);
+      leftArm.position.set(-0.9,1.5,0); leftArm.rotation.z = Math.PI/2;
+      g.add(leftArm);
+      const rightArm = leftArm.clone();
+      rightArm.position.x = 0.9;
+      g.add(rightArm);
+
+      // Legs
+      const leg = new THREE.CylinderGeometry(0.05,0.05,1,8);
+      const leftLeg = new THREE.Mesh(leg,mat);
+      leftLeg.position.set(-0.3,0.5,0);
+      g.add(leftLeg);
+      const rightLeg = leftLeg.clone();
+      rightLeg.position.x = 0.3;
+      g.add(rightLeg);
+
+      return g;
     }
 
     // --- Shooting ---
     function shoot() {
-      const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-      const bulletGeo = new THREE.SphereGeometry(0.1, 8, 8);
-      const bulletMesh = new THREE.Mesh(bulletGeo, bulletMat);
-
-      // Direction based on player rotation
-      const dir = new THREE.Vector3(
-        Math.sin(player.rotation.y),
-        0,
-        Math.cos(player.rotation.y)
-      );
-
-      bulletMesh.position.copy(player.position)
-                       .add(dir.clone().multiplyScalar(1.5))
-                       .add(new THREE.Vector3(0, 1.5, 0));
-
-      scene.add(bulletMesh);
-      bullets.push({ mesh: bulletMesh, dir, life: 0 });
+      const geom = new THREE.SphereGeometry(0.1,8,8);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+      const mesh = new THREE.Mesh(geom, mat);
+      const dir = new THREE.Vector3(Math.sin(player.rotation.y),0,Math.cos(player.rotation.y));
+      mesh.position.copy(player.position)
+                   .add(dir.clone().multiplyScalar(1.5))
+                   .add(new THREE.Vector3(0,1.5,0));
+      scene.add(mesh);
+      bullets.push({ mesh, dir, life: 0 });
     }
 
     // --- Enemy Spawning ---
     function spawnEnemy() {
-      const enemy = createStickFigureWithGun(0xff0000);
-      // Scale up so they're easy to hit
-      enemy.scale.set(1.5, 1.5, 1.5);
-
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 50;
-      enemy.position.set(
-        player.position.x + Math.cos(angle) * distance,
+      const e = createEnemyFigure();
+      const angle = Math.random()*Math.PI*2;
+      const dist = 50;
+      e.position.set(
+        player.position.x + Math.cos(angle)*dist,
         0,
-        player.position.z + Math.sin(angle) * distance
+        player.position.z + Math.sin(angle)*dist
       );
-      // Speed up slightly as score climbs
-      enemy.userData.speed = 1 + score * 0.01;
-
-      scene.add(enemy);
-      enemies.push(enemy);
-
-      // Increase spawn rate
-      spawnInterval = Math.max(500, spawnInterval * 0.98);
+      e.userData.speed = 1 + score*0.01;
+      scene.add(e);
+      enemies.push(e);
+      spawnInterval = Math.max(500, spawnInterval*0.98);
     }
 
     // --- Main Loop ---
     function animate(time) {
-      const delta = (time - lastTime) / 1000;
+      const dt = (time - lastTime)/1000;
       lastTime = time;
 
       if (!gameOverFlag) {
-        // Spawn enemies
         if (time - lastSpawn > spawnInterval) {
           spawnEnemy();
           lastSpawn = time;
         }
 
-        // Rotation via Left/Right Arrows
-        if (keys['arrowleft'])  player.rotation.y += ROTATE_SPEED * delta;
-        if (keys['arrowright']) player.rotation.y -= ROTATE_SPEED * delta;
+        // Rotation: Left/Right arrows
+        if (keys['arrowleft'])  player.rotation.y += ROTATE_SPEED*dt;
+        if (keys['arrowright']) player.rotation.y -= ROTATE_SPEED*dt;
 
-        // Movement via WASD (normalized)
-        let dx = 0, dz = 0;
-        if (keys['w']) { dx += Math.sin(player.rotation.y); dz += Math.cos(player.rotation.y); }
-        if (keys['s']) { dx -= Math.sin(player.rotation.y); dz -= Math.cos(player.rotation.y); }
-        if (keys['a']) { dx += Math.sin(player.rotation.y - Math.PI/2); dz += Math.cos(player.rotation.y - Math.PI/2); }
-        if (keys['d']) { dx += Math.sin(player.rotation.y + Math.PI/2); dz += Math.cos(player.rotation.y + Math.PI/2); }
-        const len = Math.hypot(dx, dz);
-        if (len > 0) {
-          dx /= len; dz /= len;
-          player.position.x += dx * MOVE_SPEED * delta;
-          player.position.z += dz * MOVE_SPEED * delta;
-        }
-        // Keep player in bounds
-        player.position.x = THREE.MathUtils.clamp(player.position.x, -50, 50);
-        player.position.z = THREE.MathUtils.clamp(player.position.z, -50, 50);
+        // Movement: WASD (fixed strafe)
+        let dx=0,dz=0;
+        if (keys['w']) { dx+=Math.sin(player.rotation.y); dz+=Math.cos(player.rotation.y); }
+        if (keys['s']) { dx-=Math.sin(player.rotation.y); dz-=Math.cos(player.rotation.y); }
+        if (keys['a']) { dx+=Math.sin(player.rotation.y + Math.PI/2); dz+=Math.cos(player.rotation.y + Math.PI/2); }
+        if (keys['d']) { dx+=Math.sin(player.rotation.y - Math.PI/2); dz+=Math.cos(player.rotation.y - Math.PI/2); }
+        const len=Math.hypot(dx,dz);
+        if(len>0){ dx/=len; dz/=len; player.position.x+=dx*MOVE_SPEED*dt; player.position.z+=dz*MOVE_SPEED*dt; }
+        player.position.x = THREE.MathUtils.clamp(player.position.x,-50,50);
+        player.position.z = THREE.MathUtils.clamp(player.position.z,-50,50);
 
-        // Update bullets
-        bullets = bullets.filter(b => {
-          b.mesh.position.add(b.dir.clone().multiplyScalar(50 * delta));
-          b.life += delta;
-          if (b.life > 2) {
-            scene.remove(b.mesh);
-            return false;
-          }
+        // Bullets
+        bullets = bullets.filter(b=>{
+          b.mesh.position.add(b.dir.clone().multiplyScalar(50*dt));
+          b.life+=dt;
+          if(b.life>2){ scene.remove(b.mesh); return false; }
           return true;
         });
 
-        // Update enemies
-        enemies = enemies.filter(e => {
-          // Move toward player
-          const toPlayer = new THREE.Vector3().subVectors(player.position, e.position).normalize();
-          e.position.add(toPlayer.multiplyScalar(e.userData.speed * delta));
-          e.rotation.y = Math.atan2(player.position.x - e.position.x, player.position.z - e.position.z);
+        // Enemies
+        enemies = enemies.filter(e=>{
+          const toP = new THREE.Vector3().subVectors(player.position,e.position).normalize();
+          e.position.add(toP.multiplyScalar(e.userData.speed*dt));
+          e.rotation.y = Math.atan2(player.position.x-e.position.x, player.position.z-e.position.z);
 
-          // Damage on contact
-          if (e.position.distanceTo(player.position) < 1) {
-            health -= 10;
-            updateHUD();
+          // Contact damage
+          if(e.position.distanceTo(player.position)<1){
+            health-=10; updateHUD();
             scene.remove(e);
             return false;
           }
-
-          // Bullet collision (2D check)
-          for (let i = 0; i < bullets.length; i++) {
-            const b = bullets[i].mesh.position;
-            const exz = new THREE.Vector2(e.position.x, e.position.z);
-            const bxz = new THREE.Vector2(b.x, b.z);
-            if (bxz.distanceTo(exz) < 1.5) {
-              score++;
-              updateHUD();
-              scene.remove(e);
-              scene.remove(bullets[i].mesh);
-              bullets.splice(i, 1);
+          // Bullet hits
+          for(let i=0;i<bullets.length;i++){
+            const bp = bullets[i].mesh.position;
+            const exz = new THREE.Vector2(e.position.x,e.position.z);
+            const bxz = new THREE.Vector2(bp.x,bp.z);
+            if(bxz.distanceTo(exz)<1.5){
+              score++; updateHUD();
+              scene.remove(e); scene.remove(bullets[i].mesh);
+              bullets.splice(i,1);
               return false;
             }
           }
           return true;
         });
 
-        // Check game over
-        if (health <= 0) endGame();
+        if(health<=0) endGame();
 
-        // Camera follows behind & above player
-        const camOffset = new THREE.Vector3(
-          -Math.sin(player.rotation.y) * 10,
-           5,
-          -Math.cos(player.rotation.y) * 10
-        );
-        camera.position.copy(player.position).add(camOffset);
+        // Camera follow
+        const off = new THREE.Vector3(-Math.sin(player.rotation.y)*10,5,-Math.cos(player.rotation.y)*10);
+        camera.position.copy(player.position).add(off);
         camera.lookAt(player.position);
       }
 
-      renderer.render(scene, camera);
-      if (!gameOverFlag) requestAnimationFrame(animate);
+      renderer.render(scene,camera);
+      if(!gameOverFlag) requestAnimationFrame(animate);
     }
 
-    // --- HUD & Game State ---
+    // --- HUD & Game Over ---
     function updateHUD() {
       document.getElementById('score').innerText = score;
-      document.getElementById('hp').innerText    = Math.max(0, health);
+      document.getElementById('hp').innerText    = Math.max(0,health);
     }
 
     function endGame() {
       gameOverFlag = true;
       document.getElementById('finalScore').innerText = score;
+      loadHighScores();
       document.getElementById('gameOverScreen').style.display = 'flex';
     }
 
-    function restart() {
-      // Cleanup existing
-      enemies.forEach(e => scene.remove(e));
-      bullets.forEach(b => scene.remove(b.mesh));
-      enemies = [];
-      bullets = [];
+    // --- High Scores ---
+    function loadHighScores() {
+      const list = JSON.parse(localStorage.getItem(HIGHSCORES_KEY)||'[]')
+        .sort((a,b)=>b.score-a.score)
+        .slice(0,10);
+      const ol = document.getElementById('highScoreList');
+      ol.innerHTML = '';
+      list.forEach(entry=>{
+        const li = document.createElement('li');
+        li.innerText = `${entry.name}: ${entry.score}`;
+        ol.appendChild(li);
+      });
+    }
 
-      // Reset
-      score = 0;
-      health = 100;
-      spawnInterval = 2000;
-      lastSpawn = performance.now();
+    function submitHighScore() {
+      const name = document.getElementById('usernameInput').value.trim() || 'Anonymous';
+      const hs = JSON.parse(localStorage.getItem(HIGHSCORES_KEY)||'[]');
+      hs.push({ name, score });
+      localStorage.setItem(HIGHSCORES_KEY, JSON.stringify(hs));
+      loadHighScores();
+      document.getElementById('usernameInput').disabled = true;
+      document.getElementById('submitScoreBtn').disabled = true;
+    }
+
+    function restart() {
+      // cleanup
+      enemies.forEach(e=>scene.remove(e));
+      bullets.forEach(b=>scene.remove(b.mesh));
+      enemies = []; bullets = [];
+
+      // reset state
+      score = 0; health = 100;
+      spawnInterval = 2000; lastSpawn = performance.now();
       gameOverFlag = false;
       updateHUD();
       document.getElementById('gameOverScreen').style.display = 'none';
+      document.getElementById('usernameInput').value = '';
+      document.getElementById('usernameInput').disabled = false;
+      document.getElementById('submitScoreBtn').disabled = false;
       lastTime = performance.now();
       animate(lastTime);
     }
